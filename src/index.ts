@@ -3,10 +3,18 @@ import { loadConfig, saveConfig, resolveToken, resolveChatId } from "./config.js
 import { startBot, stopBot, getBot, setAllowedChatId, setIncomingMessageHandler, waitForChatId, sendText, sendTyping } from "./bot.js";
 import { markdownToTelegramHtml, splitForTelegram } from "./formatter.js";
 
+const TELEGRAM_BRIEF_INSTRUCTION = [
+	"The user is reading this on a phone via Telegram.",
+	"Be very concise: short paragraphs, no big code blocks unless asked.",
+	"Summarize actions taken rather than showing full output.",
+	"Use plain language, skip formatting-heavy content.",
+].join(" ");
+
 export default function (pi: ExtensionAPI) {
 	let relayEnabled = false;
 	let chatId: number | null = null;
 	let botToken: string | null = null;
+	let lastMessageFromTelegram = false;
 
 	// ── Setup Flow ──────────────────────────────────────────────
 
@@ -69,7 +77,8 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.notify(`📱 Telegram: ${text.length > 60 ? text.slice(0, 60) + "…" : text}`, "info");
 			}
 
-			// Send to agent
+			// Mark as Telegram-originated and send to agent
+			lastMessageFromTelegram = true;
 			if (ctx.isIdle()) {
 				pi.sendUserMessage(text);
 			} else {
@@ -147,6 +156,22 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+	// ── Telegram → Brief Response ───────────────────────────────
+
+	pi.on("input", async (event) => {
+		// If input came from the TUI (not from our extension), clear the flag
+		if (event.source !== "extension") {
+			lastMessageFromTelegram = false;
+		}
+	});
+
+	pi.on("before_agent_start", async (event) => {
+		if (!relayEnabled || !lastMessageFromTelegram) return;
+		return {
+			systemPrompt: event.systemPrompt + "\n\n" + TELEGRAM_BRIEF_INSTRUCTION,
+		};
+	});
+
 	// ── Session Events ──────────────────────────────────────────
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -196,13 +221,14 @@ export default function (pi: ExtensionAPI) {
 	// ── Agent → Telegram (outgoing) ─────────────────────────────
 
 	pi.on("agent_start", async () => {
-		if (relayEnabled && chatId) {
+		if (relayEnabled && chatId && lastMessageFromTelegram) {
 			await sendTyping(chatId);
 		}
 	});
 
 	pi.on("agent_end", async (event) => {
-		if (!relayEnabled || !chatId) return;
+		if (!relayEnabled || !chatId || !lastMessageFromTelegram) return;
+		lastMessageFromTelegram = false;
 
 		// Extract the last assistant message text
 		const messages = event.messages ?? [];
