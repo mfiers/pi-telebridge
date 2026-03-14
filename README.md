@@ -5,6 +5,7 @@ A [pi](https://github.com/badlogic/pi-mono) extension that creates a two-way rel
 - **Agent → Phone**: Every final assistant response is forwarded to your Telegram chat
 - **Phone → Agent**: Your Telegram replies are injected as user messages into the session
 - **Voice Messages**: Voice, audio, and video note messages are downloaded and forwarded to the agent for transcription
+- **Photos**: Photos are downloaded and forwarded to the agent for viewing/analysis
 
 Both the pi TUI and Telegram inputs coexist — you can use either at any time.
 
@@ -44,6 +45,7 @@ When the relay is enabled:
 - Every assistant response is forwarded to your Telegram chat
 - Messages you send to the bot are injected into the pi session
 - Voice/audio messages are downloaded to `~/.pi/agent/voice_messages/` and forwarded as `[Voice message received: <path>]`
+- Photos are downloaded to `~/.pi/agent/photo_messages/` and forwarded as `[Photo received: <path>]`
 - If the agent is idle, your message starts a new turn; if busy, it's queued as a follow-up
 
 ## Security

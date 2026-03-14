@@ -9,18 +9,25 @@ let currentToken: string | null = null;
 
 export type IncomingMessageHandler = (chatId: number, text: string) => void;
 export type IncomingVoiceHandler = (chatId: number, filePath: string, duration: number) => void;
+export type IncomingPhotoHandler = (chatId: number, filePath: string, caption: string | undefined) => void;
 
 let onIncomingMessage: IncomingMessageHandler | null = null;
 let onIncomingVoice: IncomingVoiceHandler | null = null;
+let onIncomingPhoto: IncomingPhotoHandler | null = null;
 let allowedChatId: number | null = null;
 let chatIdDiscoveryResolve: ((chatId: number) => void) | null = null;
 
-// ── Voice message storage ───────────────────────────────────
+// ── Media storage ───────────────────────────────────────────
 
 const VOICE_DIR = path.join(os.homedir(), ".pi", "agent", "voice_messages");
+const PHOTO_DIR = path.join(os.homedir(), ".pi", "agent", "photo_messages");
 
 function ensureVoiceDir(): void {
 	try { fs.mkdirSync(VOICE_DIR, { recursive: true }); } catch {}
+}
+
+function ensurePhotoDir(): void {
+	try { fs.mkdirSync(PHOTO_DIR, { recursive: true }); } catch {}
 }
 
 // ── Lock file for cross-process coordination ────────────────
@@ -161,6 +168,53 @@ export async function startBot(token: string): Promise<Bot> {
 		}
 	});
 
+	// Handle photo messages
+	bot.on("message:photo", async (ctx) => {
+		const chatId = ctx.chat.id;
+
+		// Chat ID discovery mode
+		if (chatIdDiscoveryResolve) {
+			chatIdDiscoveryResolve(chatId);
+			chatIdDiscoveryResolve = null;
+			return;
+		}
+
+		if (allowedChatId !== null && chatId !== allowedChatId) return;
+
+		try {
+			// Get the largest photo (last in the array)
+			const photos = ctx.message.photo;
+			const photo = photos[photos.length - 1];
+			if (!photo) return;
+
+			const file = await ctx.api.getFile(photo.file_id);
+			const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
+
+			const resp = await fetch(fileUrl);
+			const buffer = Buffer.from(await resp.arrayBuffer());
+
+			ensurePhotoDir();
+			const ext = path.extname(file.file_path || "") || ".jpg";
+			const filename = `photo_${Date.now()}${ext}`;
+			const filepath = path.join(PHOTO_DIR, filename);
+			fs.writeFileSync(filepath, buffer);
+
+			const caption = ctx.message.caption;
+
+			// Notify via photo handler or fall back to text handler
+			if (onIncomingPhoto) {
+				onIncomingPhoto(chatId, filepath, caption);
+			} else if (onIncomingMessage) {
+				const msg = caption
+					? `[Photo received: ${filepath}] ${caption}`
+					: `[Photo received: ${filepath}]`;
+				onIncomingMessage(chatId, msg);
+			}
+		} catch (err: any) {
+			console.error("[telebridge] Photo download error:", err.message);
+		}
+	});
+
 	// Handle errors — detect 409 Conflict (another poller took over)
 	bot.catch((err) => {
 		const msg = err.message || "";
@@ -235,6 +289,10 @@ export function setIncomingMessageHandler(handler: IncomingMessageHandler | null
 
 export function setIncomingVoiceHandler(handler: IncomingVoiceHandler | null): void {
 	onIncomingVoice = handler;
+}
+
+export function setIncomingPhotoHandler(handler: IncomingPhotoHandler | null): void {
+	onIncomingPhoto = handler;
 }
 
 /**

@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { loadConfig, saveConfig, resolveToken, resolveChatId } from "./config.js";
-import { startBot, stopBot, getBot, setAllowedChatId, setIncomingMessageHandler, setIncomingVoiceHandler, waitForChatId, sendText, sendTyping } from "./bot.js";
+import { startBot, stopBot, getBot, setAllowedChatId, setIncomingMessageHandler, setIncomingVoiceHandler, setIncomingPhotoHandler, waitForChatId, sendText, sendTyping } from "./bot.js";
 import { markdownToTelegramHtml, splitForTelegram } from "./formatter.js";
 
 const TELEGRAM_BRIEF_INSTRUCTION = [
@@ -100,6 +100,29 @@ export default function (pi: ExtensionAPI) {
 			// Forward as user message so the agent can transcribe it
 			lastMessageFromTelegram = true;
 			const text = `[Voice message received: ${filePath}]`;
+			if (ctx.isIdle()) {
+				pi.sendUserMessage(text);
+			} else {
+				pi.sendUserMessage(text, { deliverAs: "followUp" });
+			}
+		});
+
+		setIncomingPhotoHandler((_incomingChatId, filePath, caption) => {
+			if (!relayEnabled) {
+				sendText(_incomingChatId, "⚠️ Relay is disabled. Enable with /telegram in pi.");
+				return;
+			}
+
+			// Notify in TUI
+			if (ctx.hasUI) {
+				ctx.ui.notify(`📷 Telegram: photo received → ${filePath}`, "info");
+			}
+
+			// Forward as user message with image path
+			lastMessageFromTelegram = true;
+			const text = caption
+				? `[Photo received: ${filePath}] ${caption}`
+				: `[Photo received: ${filePath}]`;
 			if (ctx.isIdle()) {
 				pi.sendUserMessage(text);
 			} else {
