@@ -211,6 +211,15 @@ export default function (pi: ExtensionAPI) {
 		}
 	});
 
+	pi.on("session_before_switch", async () => {
+		// Stop bot before switching sessions to release the polling connection
+		if (relayEnabled && chatId) {
+			await sendText(chatId, "📴 Session switching...");
+		}
+		await stopBot();
+		relayEnabled = false;
+	});
+
 	pi.on("session_shutdown", async () => {
 		if (relayEnabled && chatId) {
 			await sendText(chatId, "📴 pi session ended");

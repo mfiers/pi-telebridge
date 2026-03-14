@@ -1,4 +1,8 @@
 import { Bot } from "grammy";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as os from "node:os";
+import * as crypto from "node:crypto";
 
 let botInstance: Bot | null = null;
 let currentToken: string | null = null;
@@ -9,9 +13,58 @@ let onIncomingMessage: IncomingMessageHandler | null = null;
 let allowedChatId: number | null = null;
 let chatIdDiscoveryResolve: ((chatId: number) => void) | null = null;
 
+// ── Lock file for cross-process coordination ────────────────
+
+const LOCK_DIR = path.join(os.homedir(), ".pi", "agent");
+const LOCK_FILE = path.join(LOCK_DIR, "telebridge.lock");
+
+/** Unique ID for this bot instance */
+let instanceId: string | null = null;
+
+function writeLock(): string {
+	const id = crypto.randomUUID();
+	fs.mkdirSync(LOCK_DIR, { recursive: true });
+	fs.writeFileSync(LOCK_FILE, id, "utf-8");
+	instanceId = id;
+	return id;
+}
+
+function readLock(): string | null {
+	try {
+		return fs.readFileSync(LOCK_FILE, "utf-8").trim();
+	} catch {
+		return null;
+	}
+}
+
+function clearLock(): void {
+	try {
+		const current = readLock();
+		if (current === instanceId) {
+			fs.unlinkSync(LOCK_FILE);
+		}
+	} catch {
+		// Ignore
+	}
+	instanceId = null;
+}
+
+/** Check if another instance has taken over the lock */
+export function isEvicted(): boolean {
+	if (!instanceId) return true;
+	const current = readLock();
+	return current !== instanceId;
+}
+
+// ── Bot lifecycle ───────────────────────────────────────────
+
 /**
- * Get or create the grammy Bot singleton.
- * If token changes, the old bot is stopped and a new one created.
+ * Start the grammy Bot singleton with cross-process coordination.
+ *
+ * 1. Writes a lock file to claim this instance
+ * 2. Calls deleteWebhook to force-disconnect any existing poller
+ * 3. Starts long polling
+ * 4. Handles 409 Conflict by stopping gracefully (another instance took over)
  */
 export async function startBot(token: string): Promise<Bot> {
 	if (botInstance && currentToken === token) {
@@ -22,6 +75,9 @@ export async function startBot(token: string): Promise<Bot> {
 	if (botInstance) {
 		await stopBot();
 	}
+
+	// Claim the lock — any other instance checking will see it's been evicted
+	writeLock();
 
 	const bot = new Bot(token);
 
@@ -47,10 +103,27 @@ export async function startBot(token: string): Promise<Bot> {
 		}
 	});
 
-	// Catch errors so they don't crash the process
+	// Handle errors — detect 409 Conflict (another poller took over)
 	bot.catch((err) => {
-		console.error("[telebridge] Bot error:", err.message);
+		const msg = err.message || "";
+		const description = (err as any)?.error?.description || "";
+
+		if (msg.includes("409") || description.includes("409") || description.includes("Conflict")) {
+			console.error("[telebridge] 409 Conflict — another instance is polling. Stopping this bot.");
+			stopBot();
+			return;
+		}
+
+		console.error("[telebridge] Bot error:", msg);
 	});
+
+	// Force-disconnect any existing poller by calling deleteWebhook
+	// This also terminates any pending getUpdates call from another process
+	try {
+		await bot.api.deleteWebhook({ drop_pending_updates: false });
+	} catch {
+		// Ignore — might fail if token is invalid, but start() will catch that
+	}
 
 	// Start long polling (non-blocking)
 	bot.start({
@@ -75,6 +148,7 @@ export async function stopBot(): Promise<void> {
 		botInstance = null;
 		currentToken = null;
 	}
+	clearLock();
 }
 
 export function getBot(): Bot | null {
