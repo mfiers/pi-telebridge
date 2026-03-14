@@ -126,10 +126,22 @@ export async function startBot(token: string): Promise<Bot> {
 	}
 
 	// Start long polling (non-blocking)
+	// Catch the promise to handle polling errors (409 Conflict etc.)
+	// without crashing the process via unhandled rejection
 	bot.start({
 		onStart: () => {
 			// Bot is polling
 		},
+	}).catch((err: any) => {
+		const msg = err?.message || "";
+		if (msg.includes("409") || msg.includes("Conflict")) {
+			// Another instance took over — stop silently
+			botInstance = null;
+			currentToken = null;
+			clearLock();
+		} else {
+			console.error("[telebridge] Polling stopped:", msg);
+		}
 	});
 
 	botInstance = bot;
