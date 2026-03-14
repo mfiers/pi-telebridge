@@ -175,8 +175,12 @@ export default function (pi: ExtensionAPI) {
 	// ── Session Events ──────────────────────────────────────────
 
 	pi.on("session_start", async (_event, ctx) => {
+		// Always stop any lingering bot from a previous session
+		await stopBot();
+
 		// Restore relay state from session entries
 		relayEnabled = false;
+		lastMessageFromTelegram = false;
 		for (const entry of ctx.sessionManager.getEntries()) {
 			if (entry.type === "custom" && entry.customType === "telebridge-state") {
 				const data = (entry as { data?: { enabled?: boolean } }).data;
@@ -218,6 +222,14 @@ export default function (pi: ExtensionAPI) {
 		}
 		await stopBot();
 		relayEnabled = false;
+		lastMessageFromTelegram = false;
+	});
+
+	pi.on("session_switch", async () => {
+		// Belt-and-suspenders: ensure bot is stopped after switch completes
+		await stopBot();
+		relayEnabled = false;
+		lastMessageFromTelegram = false;
 	});
 
 	pi.on("session_shutdown", async () => {

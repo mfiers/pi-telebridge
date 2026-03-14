@@ -61,17 +61,15 @@ export function isEvicted(): boolean {
 /**
  * Start the grammy Bot singleton with cross-process coordination.
  *
+ * Always stops any existing bot first (even if same token) to prevent
+ * duplicate pollers. Then:
  * 1. Writes a lock file to claim this instance
  * 2. Calls deleteWebhook to force-disconnect any existing poller
  * 3. Starts long polling
  * 4. Handles 409 Conflict by stopping gracefully (another instance took over)
  */
 export async function startBot(token: string): Promise<Bot> {
-	if (botInstance && currentToken === token) {
-		return botInstance;
-	}
-
-	// Stop old bot if token changed
+	// Always stop existing bot — never reuse instances
 	if (botInstance) {
 		await stopBot();
 	}
