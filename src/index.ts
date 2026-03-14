@@ -215,7 +215,7 @@ export default function (pi: ExtensionAPI) {
 		}
 	});
 
-	pi.on("session_before_switch", async () => {
+	pi.on("session_before_switch", async (_event, ctx) => {
 		// Stop bot before switching sessions to release the polling connection
 		if (relayEnabled && chatId) {
 			await sendText(chatId, "📴 Session switching...");
@@ -223,13 +223,19 @@ export default function (pi: ExtensionAPI) {
 		await stopBot();
 		relayEnabled = false;
 		lastMessageFromTelegram = false;
+		if (ctx.hasUI) {
+			ctx.ui.setStatus("telebridge", undefined);
+		}
 	});
 
-	pi.on("session_switch", async () => {
+	pi.on("session_switch", async (_event, ctx) => {
 		// Belt-and-suspenders: ensure bot is stopped after switch completes
 		await stopBot();
 		relayEnabled = false;
 		lastMessageFromTelegram = false;
+		if (ctx.hasUI) {
+			ctx.ui.setStatus("telebridge", undefined);
+		}
 	});
 
 	pi.on("session_shutdown", async () => {
