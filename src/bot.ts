@@ -1,4 +1,4 @@
-import { Bot } from "grammy";
+import { Bot, InputFile } from "grammy";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -320,7 +320,7 @@ export async function sendText(chatId: number, text: string, parseMode?: "HTML")
 }
 
 /**
- * Send a photo. Falls back silently on error.
+ * Send a photo by URL. Falls back silently on error.
  */
 export async function sendPhoto(chatId: number, url: string, caption?: string): Promise<void> {
 	if (!botInstance) return;
@@ -331,6 +331,49 @@ export async function sendPhoto(chatId: number, url: string, caption?: string): 
 		});
 	} catch (err: any) {
 		console.error("[telebridge] Photo send error:", err.message);
+	}
+}
+
+/**
+ * Send a photo from a base64-encoded buffer. Falls back silently on error.
+ */
+export async function sendPhotoFromBase64(
+	chatId: number,
+	base64Data: string,
+	mediaType: string,
+	caption?: string,
+): Promise<void> {
+	if (!botInstance) return;
+	try {
+		const buffer = Buffer.from(base64Data, "base64");
+		const ext = mediaType.split("/")[1] ?? "png";
+		const file = new InputFile(buffer, `image.${ext}`);
+		await botInstance.api.sendPhoto(chatId, file, {
+			caption,
+			parse_mode: "HTML",
+		});
+	} catch (err: any) {
+		console.error("[telebridge] Photo (base64) send error:", err.message);
+	}
+}
+
+/**
+ * Send a photo from a local file path. Falls back silently on error.
+ */
+export async function sendPhotoFromFile(
+	chatId: number,
+	filePath: string,
+	caption?: string,
+): Promise<void> {
+	if (!botInstance) return;
+	try {
+		const file = new InputFile(filePath);
+		await botInstance.api.sendPhoto(chatId, file, {
+			caption,
+			parse_mode: "HTML",
+		});
+	} catch (err: any) {
+		console.error("[telebridge] Photo (file) send error:", err.message);
 	}
 }
 

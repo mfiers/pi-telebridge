@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { loadConfig, saveConfig, resolveToken, resolveChatId } from "./config.js";
-import { startBot, stopBot, getBot, setAllowedChatId, setIncomingMessageHandler, setIncomingVoiceHandler, setIncomingPhotoHandler, waitForChatId, sendText, sendTyping } from "./bot.js";
+import { startBot, stopBot, getBot, setAllowedChatId, setIncomingMessageHandler, setIncomingVoiceHandler, setIncomingPhotoHandler, waitForChatId, sendText, sendTyping, sendPhotoFromBase64, sendPhotoFromFile } from "./bot.js";
 import { markdownToTelegramHtml, splitForTelegram } from "./formatter.js";
 
 const TELEGRAM_BRIEF_INSTRUCTION = [
@@ -270,14 +270,42 @@ export default function (pi: ExtensionAPI) {
 		if (!relayEnabled || !chatId || !lastMessageFromTelegram) return;
 		lastMessageFromTelegram = false;
 
-		// Extract the last assistant message text
 		const messages = event.messages ?? [];
+		// ── Collect images from tool results ──────────────────────────────
+		// Scan tool result messages for image content blocks (e.g. from the
+		// built-in `read` tool when it reads a .png/.jpg file).
+		const imagesToSend: Array<{ type: "base64"; mediaType: string; data: string } | { type: "file"; path: string }> = [];
+
+		for (const msg of messages) {
+			if (msg.role !== "toolResult") continue;
+			const content = Array.isArray(msg.content) ? msg.content : [];
+			for (const block of content) {
+				if (block.type === "image") {
+					if (block.source?.type === "base64") {
+						// Anthropic API format: { source: { type: "base64", mediaType, data } }
+						imagesToSend.push({
+							type: "base64",
+							mediaType: block.source.mediaType ?? "image/png",
+							data: block.source.data,
+						});
+					} else if (block.data) {
+						// Pi native format: { type: "image", data, mimeType }
+						imagesToSend.push({
+							type: "base64",
+							mediaType: block.mimeType ?? "image/png",
+							data: block.data,
+						});
+					}
+				}
+			}
+		}
+
+		// ── Extract the last assistant message text ───────────────────────
 		let assistantText = "";
 
 		for (let i = messages.length - 1; i >= 0; i--) {
 			const msg = messages[i];
 			if (msg.role === "assistant") {
-				// Extract text content blocks
 				if (typeof msg.content === "string") {
 					assistantText = msg.content;
 				} else if (Array.isArray(msg.content)) {
@@ -290,22 +318,30 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 
-		if (!assistantText.trim()) return;
+		// ── Send text first ───────────────────────────────────────────────
+		if (assistantText.trim()) {
+			const html = markdownToTelegramHtml(assistantText);
+			const chunks = splitForTelegram(html);
 
-		// Convert markdown to Telegram HTML and split if needed
-		const html = markdownToTelegramHtml(assistantText);
-		const chunks = splitForTelegram(html);
-
-		for (const chunk of chunks) {
-			try {
-				await sendText(chatId!, chunk, "HTML");
-			} catch {
-				// If HTML parsing fails, try plain text
+			for (const chunk of chunks) {
 				try {
-					await sendText(chatId!, assistantText.slice(0, 4096));
+					await sendText(chatId!, chunk, "HTML");
 				} catch {
-					// Give up silently
+					try {
+						await sendText(chatId!, assistantText.slice(0, 4096));
+					} catch {
+						// Give up silently
+					}
 				}
+			}
+		}
+
+		// ── Send images after text ────────────────────────────────────────
+		for (const img of imagesToSend) {
+			if (img.type === "base64") {
+				await sendPhotoFromBase64(chatId!, img.data, img.mediaType);
+			} else {
+				await sendPhotoFromFile(chatId!, img.path);
 			}
 		}
 	});
