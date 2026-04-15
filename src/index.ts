@@ -204,8 +204,12 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("input", async (event) => {
 		// If input came from the TUI (not from our extension), clear the flag
+		// and mirror the message to Telegram so the conversation is visible on the phone.
 		if (event.source !== "extension") {
 			lastMessageFromTelegram = false;
+			if (relayEnabled && chatId && event.text?.trim()) {
+				await sendText(chatId, `💻 ${event.text.trim()}`);
+			}
 		}
 	});
 
@@ -261,13 +265,13 @@ export default function (pi: ExtensionAPI) {
 	// ── Agent → Telegram (outgoing) ─────────────────────────────
 
 	pi.on("agent_start", async () => {
-		if (relayEnabled && chatId && lastMessageFromTelegram) {
+		if (relayEnabled && chatId) {
 			await sendTyping(chatId);
 		}
 	});
 
 	pi.on("agent_end", async (event) => {
-		if (!relayEnabled || !chatId || !lastMessageFromTelegram) return;
+		if (!relayEnabled || !chatId) return;
 		lastMessageFromTelegram = false;
 
 		const messages = event.messages ?? [];
