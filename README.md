@@ -48,6 +48,23 @@ When the relay is enabled:
 - Photos are downloaded to `~/.pi/agent/photo_messages/` and forwarded as `[Photo received: <path>]`
 - If the agent is idle, your message starts a new turn; if busy, it's queued as a follow-up
 
+## Multiple sessions
+
+Only one pi session can poll a given Telegram bot at a time — this is a Telegram API constraint.
+
+If you run `/telegram` in a second session while the first is already connected:
+
+- The **second session takes over** — it claims the bot and becomes the active relay
+- The **first session is evicted** silently: its bot stops and its relay is disconnected
+- When you **switch back to the first session**, a warning is shown:
+
+  > ⚠️ Telegram relay was taken over by another session while you were away. Run /telegram to reconnect.
+
+- The status bar in the first session is cleared to reflect the actual (disconnected) state
+- Run `/telegram` in the first session to reconnect it (which will in turn evict the second)
+
+This "last writer wins" behaviour is coordinated via a lock file at `~/.pi/agent/telebridge.lock`.
+
 ## Security
 
 - Only messages from your configured `chat_id` are accepted

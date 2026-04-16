@@ -222,7 +222,15 @@ export default function (pi: ExtensionAPI) {
 
 	// ── Session Events ──────────────────────────────────────────
 
-	pi.on("session_start", async (_event, ctx) => {
+	pi.on("session_start", async (event, ctx) => {
+		// If relay appeared active but the bot is gone, we were evicted by another session
+		if (relayEnabled && getBot() === null && ctx.hasUI) {
+			ctx.ui.notify(
+				"⚠️ Telegram relay was taken over by another session while you were away. Run /telegram to reconnect.",
+				"warning"
+			);
+		}
+
 		// Always stop any lingering bot and reset state
 		await stopBot();
 		relayEnabled = false;
