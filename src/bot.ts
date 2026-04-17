@@ -378,6 +378,29 @@ export async function sendPhotoFromFile(
 }
 
 /**
+ * Update the bot's display name and short description to reflect
+ * the current host / working directory context.
+ * Both fields are optional — pass undefined to skip updating that field.
+ */
+export async function updateBotInfo(
+	name: string | undefined,
+	shortDescription: string | undefined,
+): Promise<void> {
+	if (!botInstance) return;
+	try {
+		if (name !== undefined) {
+			await botInstance.api.setMyName(name);
+		}
+		if (shortDescription !== undefined) {
+			await botInstance.api.setMyShortDescription(shortDescription);
+		}
+	} catch (err: any) {
+		// Non-fatal — context update is best-effort
+		console.error("[telebridge] updateBotInfo error:", err.message);
+	}
+}
+
+/**
  * Send a typing indicator.
  */
 export async function sendTyping(chatId: number): Promise<void> {

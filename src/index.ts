@@ -1,3 +1,5 @@
+import * as os from "node:os";
+import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import {
 	loadConfig,
@@ -19,6 +21,7 @@ import {
 	sendTyping,
 	sendPhotoFromBase64,
 	sendPhotoFromFile,
+	updateBotInfo,
 } from "./bot.js";
 import { markdownToTelegramHtml, splitForTelegram } from "./formatter.js";
 
@@ -40,6 +43,14 @@ export default function (pi: ExtensionAPI) {
 	let lastMessageFromTelegram = false;
 
 	// ── Helpers ─────────────────────────────────────────────────
+
+	/** Build a short context string: "hostname:foldername" (capped to 64 chars) */
+	function buildContext(): string {
+		const host = os.hostname().split(".")[0]; // short hostname, no domain
+		const folder = path.basename(process.cwd());
+		const ctx = `${host}:${folder}`;
+		return ctx.length > 64 ? ctx.slice(0, 61) + "..." : ctx;
+	}
 
 	function isSetUp(): boolean {
 		return getBot() !== null && chatId !== null;
@@ -215,6 +226,15 @@ export default function (pi: ExtensionAPI) {
 	async function enableRelay(ctx: ExtensionContext) {
 		relayEnabled = true;
 		pi.appendEntry("telebridge-state", { enabled: true, bot: activeBotName });
+
+		// Update the bot's name and short description to show current context
+		const context = buildContext();
+		const botLabel = activeBotName ?? "pi";
+		await updateBotInfo(
+			`π ${botLabel} [${context}]`,      // bot display name — always starts with π
+			`Active pi session on ${context}`, // short description
+		);
+
 		if (ctx.hasUI) {
 			const label = activeBotName ? `📡 TG:${activeBotName}` : "📡 TG";
 			ctx.ui.setStatus("telebridge", ctx.ui.theme.fg("success", label));
@@ -224,13 +244,21 @@ export default function (pi: ExtensionAPI) {
 			);
 		}
 		if (chatId) {
-			await sendText(chatId, "📡 Connected to pi session");
+			await sendText(chatId, `📡 Connected — ${context}`);
 		}
 	}
 
 	async function disableRelay(ctx: ExtensionContext) {
 		relayEnabled = false;
 		pi.appendEntry("telebridge-state", { enabled: false });
+
+		// Reset bot name/description to neutral state
+		const botLabel = activeBotName ?? "pi";
+		await updateBotInfo(
+			`π ${botLabel}`,    // restore to π + bot name, no context
+			"pi coding agent", // generic short description
+		);
+
 		if (ctx.hasUI) {
 			ctx.ui.setStatus("telebridge", undefined);
 			ctx.ui.notify("🔴 Telegram relay disabled", "info");
